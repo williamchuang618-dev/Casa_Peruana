@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+/* ── La Casa Peruana ────────────────────────────────────────────────────────
+   Palette drawn from the Andes rather than from a UI kit: adobe and terracotta
+   for the brand, Inca gold for accents, cochineal red for alarm, and a warm
+   parchment ground instead of the usual cold grey. Every surface is slightly
+   warm so the app reads as one material.                                     */
+
+@theme {
+  /* ground & ink */
+  --color-canvas: #f6f1e7;
+  --color-surface: #fffdf8;
+  --color-line: #e6dccb;
+  --color-line-soft: #f1ebdd;
+  --color-ink-900: #221a12;
+  --color-ink-700: #46372a;
+  --color-ink-500: #7c6b58;
+  --color-ink-400: #a4947f;
+
+  /* brand — adobe terracotta */
+  --color-brand: #a8442a;
+  --color-brand-dark: #8b3520;
+  --color-brand-soft: #f7e9e1;
+
+  /* Andean accents */
+  --color-inti: #c8952c;        /* Inca gold — the sun */
+  --color-inti-soft: #faf0d8;
+  --color-andes: #3f6b4f;       /* terrace green */
+  --color-lago: #2f6b7a;        /* Titicaca blue */
+  --color-cochineal: #9b2c22;   /* alarm red */
+  --color-piedra: #6f6659;      /* granite */
+  --color-noche: #171009;       /* night — full-bleed grounds */
+
+  --font-display: var(--font-cormorant), ui-serif, Georgia, serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, monospace;
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.display { font-family: var(--font-display); }
+
+/* Hand-rolled primitives so the JSX stays readable instead of carrying twelve
+   utility classes on every element. These are @utility rather than @layer
+   components because Tailwind v4 only lets @apply reference real utilities —
+   a class declared in @layer components cannot be composed by another. */
+
+@utility card {
+  @apply rounded-xl border border-line bg-surface;
+}
+@utility card-pad { @apply p-5; }
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium
+         transition-colors disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap;
+}
+@utility btn-primary { @apply btn bg-brand text-white hover:bg-brand-dark; }
+@utility btn-secondary { @apply btn border border-line bg-surface text-ink-700 hover:bg-line-soft; }
+@utility btn-ghost { @apply btn text-ink-500 hover:bg-line-soft hover:text-ink-900; }
+@utility btn-danger { @apply btn bg-[#8d2820] text-white hover:bg-[#78201a]; }
+@utility btn-sm { @apply px-2.5 py-1.5 text-xs; }
+
+@utility input {
+  @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-900
+         placeholder:text-ink-400 outline-none
+         focus:border-brand focus:ring-2 focus:ring-brand/15;
+}
+@utility label { @apply block text-xs font-medium text-ink-700 mb-1.5; }
+
+@utility badge {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap;
+}
+
+@utility th {
+  @apply px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-400;
+}
+
+/* Buttons that sit on the dark header band need the inverse treatment; without
+   this the ghost and secondary variants disappear into the ridge. */
+.on-dark .btn-secondary {
+  background: rgba(246, 241, 231, 0.08);
+  border-color: rgba(246, 241, 231, 0.28);
+  color: #f6f1e7;
+}
+.on-dark .btn-secondary:hover { background: rgba(246, 241, 231, 0.18); }
+.on-dark .btn-ghost { color: rgba(246, 241, 231, 0.72); }
+.on-dark .btn-ghost:hover { background: rgba(246, 241, 231, 0.12); color: #f6f1e7; }
+.on-dark .text-ink-700, .on-dark .text-ink-500 { color: rgba(246, 241, 231, 0.7); }
+@utility td { @apply px-4 py-3 text-sm text-ink-700 align-middle; }
+
+@utility navlink {
+  @apply flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-ink-500
+         transition-colors hover:bg-line-soft hover:text-ink-900;
+}
+@utility navlink-active { @apply bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand; }
+
+
+/* ── Landing-page vocabulary ───────────────────────────────────────────────
+   The hairline drafting grid from the reference, reinterpreted as Inca
+   polygonal masonry seams, plus the tiny pinned corner labels.              */
+
+@utility micro {
+  @apply text-[10px] font-medium uppercase tracking-[0.22em];
+}
+
+@utility rule-grid {
+  background-image:
+    linear-gradient(to right, rgba(246, 241, 231, 0.13) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(246, 241, 231, 0.13) 1px, transparent 1px);
+  background-size: 25% 33.333%;
+}
+
+/* Sections fade and rise as they enter, the way the reference cuts between
+   panels. Anything that opts out of motion simply starts visible. */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1), transform 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal.is-in { opacity: 1; transform: none; }
+.reveal-delay-1 { transition-delay: 0.12s; }
+.reveal-delay-2 { transition-delay: 0.24s; }
+.reveal-delay-3 { transition-delay: 0.36s; }
+
+/* The app gets a quieter version of the landing's motion: one rise on mount,
+   staggered across a row of cards. No scroll observers in here — a data table
+   that animates every time it scrolls into view is a data table you fight. */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.rise { animation: riseIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stagger > * { animation: riseIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stagger > *:nth-child(2) { animation-delay: 0.05s; }
+.stagger > *:nth-child(3) { animation-delay: 0.1s; }
+.stagger > *:nth-child(4) { animation-delay: 0.15s; }
+.stagger > *:nth-child(5) { animation-delay: 0.2s; }
+.stagger > *:nth-child(6) { animation-delay: 0.25s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise, .stagger > * { animation: none !important; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* Chrome/Safari put a tiny calendar glyph in date inputs; make it clickable. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .5; }
+
+@media print {
+  .no-print { display: none !important; }
+}

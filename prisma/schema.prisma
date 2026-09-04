@@ -1,0 +1,297 @@
+// Club Attendance — schema
+// Postgres-shaped: no DB enums, no vendor-specific types, so `provider = "postgresql"`
+// plus a fresh migration is the only change needed to move to Supabase/RDS.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── identity ───────────────────────────
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+  sessions     Session[]
+  ownedClubs   Club[]       @relation("ClubOwner")
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────── tenancy ───────────────────────────
+
+model Club {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  university  String?
+  logoEmoji   String   @default("🎯")
+  accentColor String   @default("#4f46e5")
+  timezone    String   @default("America/New_York")
+  joinCode    String   @unique
+  ownerUserId String
+  owner       User     @relation("ClubOwner", fields: [ownerUserId], references: [id])
+  createdAt   DateTime @default(now())
+
+  memberships Membership[]
+  semesters   Semester[]
+  events      Event[]
+  groups      MemberGroup[]
+  rules       AttendanceRule[]
+  auditLogs   AuditLog[]
+  invites     Invite[]
+  notifications Notification[]
+}
+
+model Semester {
+  id       String   @id @default(cuid())
+  clubId   String
+  club     Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name     String
+  startsOn DateTime
+  endsOn   DateTime
+  isActive Boolean  @default(false)
+  // Rules are frozen onto the semester when it is closed, so historical
+  // standings never shift when a club edits its live rules.
+  rulesSnapshot String?
+  events   Event[]
+  rules    AttendanceRule[]
+
+  @@unique([clubId, name])
+  @@index([clubId, isActive])
+}
+
+// The pivot. A person can hold a different role in every club they belong to.
+// userId is nullable: E-board rosters members by email long before those people
+// ever create an account; the account is claimed on signup by matching email.
+model Membership {
+  id          String   @id @default(cuid())
+  clubId      String
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  displayName String
+  email       String
+  role        String   @default("member") // owner|president|vice_president|secretary|treasurer|officer|member
+  status      String   @default("active") // active|warning|at_risk|removal_required|removed
+  joinedOn    DateTime @default(now())
+  removedAt   DateTime?
+  notes       String?
+
+  // "Conócenos" directory. The photo is a resized square JPEG held as a data
+  // URL: a club roster is a few dozen people, so a blob store would be more
+  // moving parts than the problem deserves. The browser downsamples to 512px
+  // before upload and the server caps the size, which keeps rows small.
+  photo       String?
+  pronouns    String?
+  major       String?
+  gradYear    String?
+  hometown    String?
+  bio         String?
+
+  attendance    AttendanceRecord[]
+  invitations   EventInvitee[]
+  excuses       ExcuseRequest[]
+  statusLog     MembershipStatusLog[]
+  groupLinks    MemberGroupMember[]
+  notifications Notification[]
+
+  @@unique([clubId, email])
+  @@unique([clubId, userId])
+  @@index([clubId, status])
+}
+
+model MemberGroup {
+  id      String              @id @default(cuid())
+  clubId  String
+  club    Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name    String
+  members MemberGroupMember[]
+
+  @@unique([clubId, name])
+}
+
+model MemberGroupMember {
+  groupId      String
+  group        MemberGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   Membership  @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, membershipId])
+}
+
+// ─────────────────────────── events ───────────────────────────
+
+model Event {
+  id                 String    @id @default(cuid())
+  clubId             String
+  club               Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  semesterId         String?
+  semester           Semester? @relation(fields: [semesterId], references: [id], onDelete: SetNull)
+  title              String
+  type               String    @default("general_meeting")
+  description        String?
+  location           String?
+  startsAt           DateTime
+  endsAt             DateTime
+  attendanceRequired Boolean   @default(true)
+  // scheduled | completed | cancelled — cancelled events never produce absences,
+  // and an event with attendanceTakenAt = null is "not recorded", NOT "everyone absent".
+  status             String    @default("scheduled")
+  attendanceTakenAt  DateTime?
+  checkinCode        String?
+  recurrenceGroupId  String?
+  createdByMembershipId String?
+  createdByName      String?
+  createdAt          DateTime  @default(now())
+
+  invitees   EventInvitee[]
+  attendance AttendanceRecord[]
+  excuses    ExcuseRequest[]
+
+  @@index([clubId, startsAt])
+  @@index([clubId, status])
+}
+
+// Frozen expected-roster snapshot: a member who joins in October is never
+// retroactively absent for September.
+model EventInvitee {
+  id           String     @id @default(cuid())
+  eventId      String
+  event        Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  source       String     @default("all") // all | group | specific
+
+  @@unique([eventId, membershipId])
+  @@index([membershipId])
+}
+
+model AttendanceRecord {
+  id           String     @id @default(cuid())
+  eventId      String
+  event        Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  status       String // present | absent | excused | late
+  method       String     @default("manual") // manual | self_checkin | import
+  note         String?
+  recordedByMembershipId String?
+  recordedByName         String?
+  recordedAt   DateTime   @default(now())
+
+  @@unique([eventId, membershipId])
+  @@index([membershipId])
+}
+
+model ExcuseRequest {
+  id           String     @id @default(cuid())
+  eventId      String
+  event        Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  reason       String
+  status       String     @default("pending") // pending | approved | denied
+  decidedByMembershipId String?
+  decidedByName         String?
+  decidedAt    DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@unique([eventId, membershipId])
+}
+
+// ─────────────────────────── rules & history ───────────────────────────
+
+// semesterId null = the club's live default. A per-semester row overrides it.
+model AttendanceRule {
+  id               String    @id @default(cuid())
+  clubId           String
+  club             Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  semesterId       String?
+  semester         Semester? @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  maxAbsencePoints Float     @default(3)
+  warnAtPoints     Float     @default(1)
+  pointsPresent    Float     @default(0)
+  pointsLate       Float     @default(0)
+  pointsExcused    Float     @default(0)
+  pointsAbsent     Float     @default(1)
+  minAttendancePct Float     @default(0)
+  excusedCap       Int?
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([clubId, semesterId])
+}
+
+model MembershipStatusLog {
+  id           String     @id @default(cuid())
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  fromStatus   String
+  toStatus     String
+  reason       String?
+  actorName    String?
+  createdAt    DateTime   @default(now())
+
+  @@index([membershipId])
+}
+
+model AuditLog {
+  id                String   @id @default(cuid())
+  clubId            String
+  club              Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  actorMembershipId String?
+  actorName         String
+  action            String
+  entityType        String
+  entityId          String?
+  summary           String
+  beforeJson        String?
+  afterJson         String?
+  createdAt         DateTime @default(now())
+
+  @@index([clubId, createdAt])
+}
+
+model Invite {
+  id         String    @id @default(cuid())
+  clubId     String
+  club       Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  email      String
+  role       String    @default("member")
+  token      String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+}
+
+// Queue table. Nothing sends in the MVP; the rows are written so an email
+// worker can be dropped in without a schema change.
+model Notification {
+  id           String     @id @default(cuid())
+  clubId       String
+  club         Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  type         String
+  payload      String
+  status       String     @default("pending")
+  createdAt    DateTime   @default(now())
+  sentAt       DateTime?
+
+  @@index([clubId, status])
+}
