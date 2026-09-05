@@ -11,7 +11,8 @@
     "test": "node --test \"lib/**/*.test.ts\"",
     "db:push": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "setup:db": "node scripts/setup-db.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
