@@ -1,83 +1,83 @@
 #!/usr/bin/env node
 /**
- * Writes .env from whatever Supabase put on your clipboard.
+ * Writes .env from the Supabase Prisma snippet.
  *
- * You click "copy" on the Prisma snippet in the Supabase Connect panel, run
- * this, and type your database password when asked. The password is never
- * echoed to the screen, never printed back, and never leaves this machine.
+ * The password is collected through a native macOS dialog rather than the
+ * terminal: nothing is echoed, nothing lands in shell history, and there is no
+ * prompt to mistake for a shell prompt. It is written straight to .env, which
+ * is gitignored, and never printed back.
  *
  * Run: npm run setup:db
  */
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, existsSync, copyFileSync } from 'node:fs';
-import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 
 const OUT = process.env.SETUP_DB_OUT ?? join(process.cwd(), '.env');
+const sh = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8' });
 
-function clipboard() {
+/** A macOS dialog. `hidden` masks the field, as for a password. */
+function dialog(prompt, { hidden = false, defaultAnswer = '' } = {}) {
+  const script =
+    `display dialog ${JSON.stringify(prompt)} ` +
+    `default answer ${JSON.stringify(defaultAnswer)} ` +
+    `${hidden ? 'with hidden answer ' : ''}` +
+    `with title "La Casa Peruana — database setup" buttons {"Cancel","OK"} default button "OK"`;
   try {
-    return execFileSync('pbpaste', { encoding: 'utf8' });
+    const out = sh('osascript', ['-e', script]);
+    const m = out.match(/text returned:([\s\S]*?)(?:, button returned:|$)/);
+    return m ? m[1] : '';
   } catch {
-    return '';
+    return null; // Cancel pressed
   }
 }
 
-function askHidden(question) {
-  return new Promise((resolve) => {
-    process.stdout.write(question);
-    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    // Mute the echo so the password never appears on screen or in scrollback.
-    rl._writeToOutput = () => {};
-    rl.question('', (answer) => {
-      rl.close();
-      process.stdout.write('\n');
-      resolve(answer.trim());
-    });
-  });
-}
+const PLACEHOLDER = /\[YOUR-PASSWORD\]|\[YOUR_PASSWORD\]|YOURPASSWORD|\[password\]/gi;
+const grab = (text, key) =>
+  text.match(new RegExp(`${key}\\s*=\\s*["']?(postgres(?:ql)?://[^"'\\s]+)["']?`, 'i'))?.[1] ?? null;
 
-const PLACEHOLDERS = /\[YOUR-PASSWORD\]|\[YOUR_PASSWORD\]|YOURPASSWORD|\[password\]/i;
+let source = '';
+try { source = sh('pbpaste', []); } catch { /* no clipboard */ }
 
-function grab(text, key) {
-  const m = text.match(new RegExp(`${key}\\s*=\\s*["']?(postgres(?:ql)?://[^"'\\s]+)["']?`, 'i'));
-  return m ? m[1] : null;
-}
-
-const clip = clipboard();
-let dbUrl = grab(clip, 'DATABASE_URL');
-let directUrl = grab(clip, 'DIRECT_URL');
+let dbUrl = grab(source, 'DATABASE_URL');
 
 if (!dbUrl) {
-  console.error(`
-Nothing usable on the clipboard.
+  console.log('Nothing usable on the clipboard — opening a window so you can paste it.');
+  const pasted = dialog(
+    'Paste the Supabase snippet here.\n\n' +
+    'In Supabase:  Connect  ->  ORM  ->  Prisma\n' +
+    'Copy the code block under "Configure ORM", then paste it below (Cmd+V).',
+  );
+  if (pasted === null) { console.log('\nCancelled. Nothing was written.\n'); process.exit(1); }
+  source = pasted;
+  dbUrl = grab(source, 'DATABASE_URL');
+}
 
-In Supabase: Connect (top bar) -> ORM -> Prisma, then click the copy icon on
-the code block under "Configure ORM". Then run this again.
-`);
+if (!dbUrl) {
+  console.error('\nNo DATABASE_URL found in that text. Nothing was written.\n');
   process.exit(1);
 }
 
-// Supabase only labels one of them DIRECT_URL; if it is missing, the direct
-// connection is the same string on 5432 without the pooler flag.
+// Supabase sometimes shows only one string; the direct connection is the same
+// host on 5432 without the pooler flag.
+let directUrl = grab(source, 'DIRECT_URL');
 if (!directUrl) {
   directUrl = dbUrl.replace(':6543', ':5432').replace(/[?&]pgbouncer=true/, '');
-  console.log('· No DIRECT_URL on the clipboard — derived it from DATABASE_URL (port 5432).');
+  console.log('· No DIRECT_URL supplied — derived it from DATABASE_URL (port 5432).');
 }
 
-if (PLACEHOLDERS.test(dbUrl) || PLACEHOLDERS.test(directUrl)) {
-  console.log('\nFound both connection strings. They still contain the password placeholder.\n');
-  const pw = await askHidden('Supabase database password (typing is hidden): ');
-  if (!pw) {
-    console.error('No password entered. Nothing written.');
-    process.exit(1);
-  }
-  // Passwords routinely contain @ : / # ? — all of which break a URL unless encoded.
+if (PLACEHOLDER.test(dbUrl) || PLACEHOLDER.test(directUrl)) {
+  const pw = dialog('Supabase database password\n\n(the field is masked, and this is never shown again)', {
+    hidden: true,
+  });
+  if (pw === null) { console.log('\nCancelled. Nothing was written.\n'); process.exit(1); }
+  if (!pw) { console.error('\nNo password entered. Nothing was written.\n'); process.exit(1); }
+  // Passwords routinely contain @ : / # ? — each breaks a URL unless encoded.
   const safe = encodeURIComponent(pw);
-  dbUrl = dbUrl.replace(PLACEHOLDERS, safe);
-  directUrl = directUrl.replace(PLACEHOLDERS, safe);
+  dbUrl = dbUrl.replace(PLACEHOLDER, safe);
+  directUrl = directUrl.replace(PLACEHOLDER, safe);
 } else {
-  console.log('\nFound both connection strings, password already filled in.');
+  console.log('· Password was already filled in.');
 }
 
 if (existsSync(OUT)) copyFileSync(OUT, `${OUT}.backup`);
@@ -89,12 +89,11 @@ DATABASE_URL="${dbUrl}"
 DIRECT_URL="${directUrl}"
 `);
 
-const host = dbUrl.match(/@([^:/]+)/)?.[1] ?? 'unknown host';
 console.log(`
 ✓ Wrote ${OUT}
-  host      ${host}
-  app       port ${dbUrl.match(/:(\d+)\//)?.[1] ?? '?'} (pooled)
+  host       ${dbUrl.match(/@([^:/]+)/)?.[1] ?? '?'}
+  app        port ${dbUrl.match(/:(\d+)\//)?.[1] ?? '?'} (pooled)
   migrations port ${directUrl.match(/:(\d+)\//)?.[1] ?? '?'} (direct)
-${existsSync(`${OUT}.backup`) ? '  previous .env saved as .env.backup\n' : ''}
+
 Now tell Claude it is done.
 `);
