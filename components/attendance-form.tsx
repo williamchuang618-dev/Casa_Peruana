@@ -84,7 +84,7 @@ export function AttendanceForm({
         <Tally label="Absent" count={tally.absent} tone="text-[#78201a]" />
         <Tally label="Not recorded" count={tally.blank} tone="text-ink-400" />
         <input
-          className="ml-auto w-48 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs outline-none focus:border-brand"
+          className="w-full rounded-lg border border-line bg-surface px-2.5 py-1 text-xs outline-none focus:border-brand sm:ml-auto sm:w-48"
           placeholder="Search members…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -93,26 +93,32 @@ export function AttendanceForm({
 
       <ul className="divide-y divide-line">
         {shown.map((r) => (
-          <li key={r.membershipId} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
-            <Avatar name={r.displayName} photo={r.photo} size="sm" />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-sm font-medium text-ink-900">{r.displayName}</span>
-                {r.memberStatus !== 'active' ? <StatusBadge status={r.memberStatus} /> : null}
-                <span className="text-xs text-ink-400 tabular-nums">
-                  {r.absencePoints} / {maxAbsences}
-                </span>
+          <li key={r.membershipId} className="px-4 py-2.5 sm:flex sm:items-center sm:gap-3">
+            <div className="flex items-center gap-3 sm:min-w-0 sm:flex-1">
+              <Avatar name={r.displayName} photo={r.photo} size="sm" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="truncate text-sm font-medium text-ink-900">{r.displayName}</span>
+                  {r.memberStatus !== 'active' ? <StatusBadge status={r.memberStatus} /> : null}
+                  <span className="shrink-0 text-xs tabular-nums text-ink-400">
+                    {r.absencePoints} / {maxAbsences}
+                  </span>
+                </div>
+                {r.pendingExcuse ? (
+                  <p className="mt-0.5 truncate text-xs text-[#4f4180]">
+                    Excuse requested: {r.pendingExcuse}
+                  </p>
+                ) : null}
               </div>
-              {r.pendingExcuse ? (
-                <p className="mt-0.5 truncate text-xs text-[#4f4180]">
-                  Excuse requested: {r.pendingExcuse}
-                </p>
-              ) : null}
             </div>
 
             <input type="hidden" name={`status:${r.membershipId}`} value={marks[r.membershipId] ?? ''} />
 
-            <div className="flex gap-1" role="group" aria-label={`Attendance for ${r.displayName}`}>
+            <div
+              className="mt-2 grid grid-cols-4 gap-1 sm:mt-0 sm:flex sm:shrink-0"
+              role="group"
+              aria-label={`Attendance for ${r.displayName}`}
+            >
               {ATTENDANCE_STATUSES.map((s) => {
                 const active = marks[r.membershipId] === s;
                 return (

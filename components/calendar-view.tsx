@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { dayKey, keyDayNum, keyLabel, monthGrid, parts, timeLabel, weekGrid } from '@/lib/dates';
 import { EVENT_TYPE_LABELS, type EventType } from '@/lib/rules';
 import { eventStyle } from '@/lib/theme';
@@ -37,6 +37,14 @@ export function CalendarView({
 }) {
   const [view, setView] = useState<View>(initialView);
   const [anchor, setAnchor] = useState(() => new Date(`${todayKey}T12:00:00Z`));
+  const [chosen, setChosen] = useState(false);
+
+  // Seven columns on a phone leaves ~50px per day, which cannot carry an event
+  // title. Open on Agenda instead — unless the reader has already picked a view.
+  useEffect(() => {
+    if (chosen) return;
+    if (window.innerWidth < 640) setView('agenda');
+  }, [chosen]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -82,7 +90,7 @@ export function CalendarView({
               key={v}
               role="tab"
               aria-selected={view === v}
-              onClick={() => setView(v)}
+              onClick={() => { setChosen(true); setView(v); }}
               className={`rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors ${
                 view === v ? 'bg-brand text-white' : 'text-ink-500 hover:text-ink-900'
               }`}
@@ -140,10 +148,10 @@ function MonthView({ slug, tz, anchor, byDay, todayKey }: GridProps) {
                   {keyDayNum(key)}
                 </span>
               </div>
-              <div className="space-y-1">
+              <div className="flex flex-wrap gap-1 sm:block sm:space-y-1">
                 {list.slice(0, 3).map((e) => <Chip key={e.id} slug={slug} tz={tz} event={e} />)}
                 {list.length > 3 ? (
-                  <p className="px-1 text-[11px] text-ink-400">+{list.length - 3} more</p>
+                  <p className="px-1 text-[11px] text-ink-400">+{list.length - 3}</p>
                 ) : null}
               </div>
             </div>
@@ -266,15 +274,23 @@ function AgendaView({
 }
 
 function Chip({ slug, tz, event }: { slug: string; tz: string; event: CalendarEvent }) {
+  const label = `${event.title} · ${timeLabel(event.startsAt, tz)}${event.location ? ` · ${event.location}` : ''}`;
+  const cancelled = event.status === 'cancelled';
   return (
-    <Link
-      href={`/c/${slug}/events/${event.id}`}
-      title={`${event.title} · ${timeLabel(event.startsAt, tz)}${event.location ? ` · ${event.location}` : ''}`}
-      className={`block truncate rounded px-1.5 py-0.5 text-[11px] font-medium ${eventStyle(event.type).chip} ${
-        event.status === 'cancelled' ? 'line-through opacity-50' : ''
-      }`}
-    >
-      {timeLabel(event.startsAt, tz).replace(':00', '')} {event.title}
+    <Link href={`/c/${slug}/events/${event.id}`} title={label} aria-label={label}>
+      {/* Phone: a dot, because 50px of column cannot hold a title honestly. */}
+      <span
+        className={`block h-1.5 w-1.5 rounded-full sm:hidden ${eventStyle(event.type).dot} ${
+          cancelled ? 'opacity-40' : ''
+        }`}
+      />
+      <span
+        className={`hidden truncate rounded px-1.5 py-0.5 text-[11px] font-medium sm:block ${
+          eventStyle(event.type).chip
+        } ${cancelled ? 'line-through opacity-50' : ''}`}
+      >
+        {timeLabel(event.startsAt, tz).replace(':00', '')} {event.title}
+      </span>
     </Link>
   );
 }

@@ -105,17 +105,24 @@ const code = () => Array.from(randomBytes(6), (b) => CODE[b % CODE.length]).join
 
 async function main() {
   console.log('Resetting demo data…');
-  // Clear every club this seed owns, not just known slugs — otherwise a club
-  // created by hand during testing keeps a demo user alive and the delete below
-  // trips the owner foreign key.
-  await prisma.club.deleteMany({
-    where: {
-      OR: [
-        { slug: { in: ['la-casa-peruana', 'finance-club', 'investment-club'] } },
-        { owner: { email: { endsWith: '@demo.club' } } },
-      ],
-    },
+  // Ownership is the ONLY thing that decides what gets deleted here.
+  //
+  // This used to also match a list of slugs, which was dangerous: a real club
+  // can occupy one of those slugs, and seeding would then destroy real members
+  // and their attendance history. This seed only ever creates clubs owned by
+  // @demo.club accounts, so that is the whole condition — and a club belonging
+  // to a real person can never be caught by it.
+  const doomed = await prisma.club.findMany({
+    where: { owner: { email: { endsWith: '@demo.club' } } },
+    select: { name: true, slug: true },
   });
+  const real = await prisma.club.count({
+    where: { NOT: { owner: { email: { endsWith: '@demo.club' } } } },
+  });
+  console.log(`  removing ${doomed.length} demo club(s): ${doomed.map((c) => c.slug).join(', ') || 'none'}`);
+  if (real > 0) console.log(`  leaving ${real} real club(s) untouched`);
+
+  await prisma.club.deleteMany({ where: { owner: { email: { endsWith: '@demo.club' } } } });
   await prisma.user.deleteMany({ where: { email: { endsWith: '@demo.club' } } });
 
   const passwordHash = await hash(PASSWORD);

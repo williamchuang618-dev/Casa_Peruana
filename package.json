@@ -12,7 +12,8 @@
     "db:push": "prisma migrate dev",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "setup:db": "node scripts/setup-db.mjs"
+    "setup:db": "node scripts/setup-db.mjs",
+    "share": "node scripts/share.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
